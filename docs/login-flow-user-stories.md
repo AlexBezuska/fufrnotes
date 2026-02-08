@@ -2,6 +2,8 @@
 
 This doc describes how the **login flow** and the **login view** are intended to work.
 
+For post-login note actions (create/edit/search/export/conflicts), see: [notes-view-user-stories.md](notes-view-user-stories.md)
+
 ## User stories
 
 - As a new user without an account, I can enter my email and press **Log in**, and the app will create my account on first successful sign-in.
