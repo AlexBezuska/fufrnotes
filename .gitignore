@@ -1,0 +1,9 @@
+.env
+.deploy.env
+.deploy.env.*
+backup/
+
+# Local deps
+node_modules/
+tools/node_modules/
+

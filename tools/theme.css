@@ -1,0 +1,184 @@
+/*
+  Design tokens + base components.
+  This file is concatenated into the Tailwind build input by tools/build-css.sh.
+*/
+
+@layer base {
+  :root {
+    /* Colors */
+    --bg: theme('colors.slate.50');
+    --surface: theme('colors.white');
+    --surface-2: theme('colors.slate.100');
+    --border: theme('colors.slate.200');
+    --border-strong: theme('colors.slate.300');
+    --text: theme('colors.slate.900');
+    --text-muted: theme('colors.slate.600');
+
+    /* Accent (Framework-ish orange) */
+    --accent: theme('colors.orange.500');
+    --accent-soft: theme('colors.orange.200');
+
+    /* Bubblegum accents (used sparingly) */
+    --bubblegum-pink: theme('colors.pink.300');
+    --bubblegum-lavender: theme('colors.violet.200');
+    --bubblegum-mint: theme('colors.emerald.200');
+
+    /* Typography */
+    --font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    --text-base: 16px;
+    --leading-base: 1.5;
+
+    /* Spacing (8px grid) */
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+    --space-4: 32px;
+
+    /* Radius + shadow (single style) */
+    --radius-card: 12px;
+    --shadow-card: theme('boxShadow.sm');
+
+    /* Focus ring */
+    --focus-ring: 0 0 0 3px var(--accent-soft);
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: var(--text-base);
+    line-height: var(--leading-base);
+  }
+}
+
+@layer components {
+  .ui-alert {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: 8px 12px;
+    font-size: theme('fontSize.sm');
+    line-height: theme('lineHeight.5');
+  }
+
+  .ui-alert-info {
+    background: theme('colors.sky.50');
+    border-color: theme('colors.sky.200');
+    color: theme('colors.sky.800');
+  }
+
+  .ui-alert-success {
+    background: theme('colors.emerald.50');
+    border-color: theme('colors.emerald.200');
+    color: theme('colors.emerald.800');
+  }
+
+  .ui-alert-warning {
+    background: theme('colors.orange.50');
+    border-color: theme('colors.orange.200');
+    color: theme('colors.orange.900');
+  }
+
+  .ui-alert-danger {
+    background: theme('colors.red.50');
+    border-color: theme('colors.red.200');
+    color: theme('colors.red.800');
+  }
+
+  .ui-appbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+
+  .ui-divider {
+    border-color: var(--border);
+  }
+
+  .ui-input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: 8px 16px;
+    color: var(--text);
+  }
+
+  .ui-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    padding: 8px 16px;
+    color: var(--text);
+  }
+
+  .ui-btn:hover {
+    filter: brightness(0.98);
+  }
+
+  .ui-btn-primary {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-card);
+    padding: 8px 16px;
+    color: theme('colors.white');
+    font-weight: 600;
+  }
+
+  .ui-btn-primary:hover {
+    filter: brightness(0.97);
+  }
+
+  .ui-btn-danger {
+    background: var(--surface);
+    border: 1px solid theme('colors.red.300');
+    border-radius: var(--radius-card);
+    padding: 8px 16px;
+    color: theme('colors.red.700');
+  }
+
+  .ui-focus:focus {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .ui-note-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-card);
+    padding: 16px;
+    box-shadow: var(--shadow-card);
+    border-left-width: 4px;
+    border-left-color: transparent;
+  }
+
+  .ui-note-item:hover {
+    background: theme('colors.slate.50');
+  }
+
+  .ui-note-item.is-active {
+    background: theme('colors.orange.50');
+    border-color: theme('colors.orange.200');
+    border-left-color: var(--accent);
+  }
+
+  .ui-loadingbar {
+    height: 3px;
+    background: var(--accent);
+    width: 100%;
+  }
+}

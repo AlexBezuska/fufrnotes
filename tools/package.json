@@ -1,0 +1,10 @@
+{
+  "name": "notes-tools",
+  "private": true,
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  },
+  "scripts": {
+    "build:css": "bash build-css.sh"
+  }
+}

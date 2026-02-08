@@ -1,0 +1,20 @@
+{
+  "name": "fufnotes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js",
+    "build:css": "npm --prefix tools run build:css",
+    "servertron:bootstrap": "bash scripts/servertron/bootstrap.sh",
+    "servertron:deploy": "bash scripts/servertron/deploy.sh",
+    "servertron:setup-domain-ssl": "bash scripts/servertron/setup-domain-ssl.sh",
+    "db:backup": "bash scripts/servertron/db-backup.sh",
+    "db:restore": "bash scripts/servertron/db-restore.sh",
+    "db:scaffold": "bash scripts/servertron/scaffold-postgres-app.sh"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}

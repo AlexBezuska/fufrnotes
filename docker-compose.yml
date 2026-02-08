@@ -1,0 +1,42 @@
+services:
+  fufnotes-db:
+    image: postgres:16
+    container_name: fufnotes-db
+    environment:
+      POSTGRES_DB: fufnotes
+      POSTGRES_USER: fufnotes
+      POSTGRES_PASSWORD: ${FUFNOTES_DB_PASSWORD}
+    volumes:
+      - fufnotes_db_data:/var/lib/postgresql/data
+    networks:
+      - fufnotes_internal
+
+  fufnotes-app:
+    build: .
+    container_name: fufnotes-app
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "1"
+      PORT: "8080"
+      DATABASE_URL: postgres://fufnotes:${FUFNOTES_DB_PASSWORD}@fufnotes-db:5432/fufnotes
+      # Passhroom integration (server-side)
+      PASSHROOM_BASE_URL: ${PASSHROOM_BASE_URL:-}
+      PASSHROOM_CLIENT_ID: ${PASSHROOM_CLIENT_ID:-}
+      PASSHROOM_CLIENT_SECRET: ${PASSHROOM_CLIENT_SECRET:-}
+      PASSHROOM_CALLBACK_URL: ${PASSHROOM_CALLBACK_URL:-}
+
+      # Local dev only
+      DEV_USER_ID: ${DEV_USER_ID:-}
+    depends_on:
+      - fufnotes-db
+    ports:
+      - "127.0.0.1:18081:8080"
+    networks:
+      - fufnotes_internal
+
+volumes:
+  fufnotes_db_data:
+
+networks:
+  fufnotes_internal:
+    driver: bridge

@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	html, body { width: 100%; overflow-x: hidden; }
+	#preview { user-select: text; -webkit-user-select: text; }
+	#previewInner { overflow-wrap: anywhere; word-break: break-word; }
+	#previewInner pre { overflow-x: auto; }
+}
