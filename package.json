@@ -8,6 +8,7 @@
     "build:css": "npm --prefix tools run build:css",
     "servertron:bootstrap": "bash scripts/servertron/bootstrap.sh",
     "servertron:deploy": "bash scripts/servertron/deploy.sh",
+    "servertron:ship": "bash scripts/servertron/ship.sh",
     "servertron:setup-domain-ssl": "bash scripts/servertron/setup-domain-ssl.sh",
     "db:backup": "bash scripts/servertron/db-backup.sh",
     "db:restore": "bash scripts/servertron/db-restore.sh",

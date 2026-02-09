@@ -80,6 +80,54 @@ async function ensureSchema() {
       expires_at timestamptz not null
     );
     create index if not exists sessions_expires_idx on sessions (expires_at);
+
+    create table if not exists projects (
+      id text primary key,
+      owner_user_id text not null references app_users(passhroom_user_id) on delete cascade,
+      title text not null default '',
+      due_at timestamptz null,
+      description text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists projects_owner_updated_idx on projects (owner_user_id, updated_at desc);
+
+    create table if not exists project_lists (
+      id text primary key,
+      project_id text not null references projects(id) on delete cascade,
+      owner_user_id text not null references app_users(passhroom_user_id) on delete cascade,
+      title text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists project_lists_project_idx on project_lists (project_id, created_at asc);
+
+    create table if not exists todos (
+      id text primary key,
+      list_id text not null references project_lists(id) on delete cascade,
+      project_id text not null references projects(id) on delete cascade,
+      owner_user_id text not null references app_users(passhroom_user_id) on delete cascade,
+      due_at timestamptz null,
+      recurring text not null default '',
+      notes text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists todos_list_created_idx on todos (list_id, created_at asc);
+
+    create table if not exists project_todos (
+      id text primary key,
+      project_id text not null references projects(id) on delete cascade,
+      owner_user_id text not null references app_users(passhroom_user_id) on delete cascade,
+      title text not null default '',
+      due_at timestamptz null,
+      done boolean not null default false,
+      linked_note_id text null references notes(id) on delete set null,
+      note_managed_title boolean not null default true,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create index if not exists project_todos_project_created_idx on project_todos (project_id, created_at asc);
   `);
 }
 
@@ -172,6 +220,24 @@ async function requireSession(req, res) {
 function randomId() {
   // Hex-ish, similar to the PHP app ids.
   return randomBytes(16).toString("hex");
+}
+
+function firstNonEmptyLine(s) {
+  const lines = String(s || "").replace(/\r\n/g, "\n").split("\n");
+  for (const line of lines) {
+    const t = String(line || "").trim();
+    if (t) return t;
+  }
+  return "";
+}
+
+function parseOptionalDateOnlyToUtcMidnight(dateOnly) {
+  const s = String(dateOnly || "").trim();
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  if (!Number.isFinite(d.getTime())) return undefined;
+  return d;
 }
 
 const app = express();
@@ -683,6 +749,466 @@ async function handleApi(req, res) {
       return jsonOk(res, {});
     }
 
+    if (action === "projects_list") {
+      const { rows } = await pool.query(
+        `select id, title, due_at, created_at, updated_at
+           from projects
+          where owner_user_id=$1
+          order by updated_at desc`,
+        [userId]
+      );
+      const projects = rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+        createdAt: new Date(r.created_at).toISOString(),
+        updatedAt: new Date(r.updated_at).toISOString(),
+      }));
+      return jsonOk(res, { projects });
+    }
+
+    if (action === "projects_get") {
+      const id = String(req.query.id || "");
+      if (!id) return jsonError(res, 400, { error: "missing_id" });
+
+      const p = await pool.query(
+        `select id, title, due_at, description, created_at, updated_at
+           from projects
+          where id=$1 and owner_user_id=$2
+          limit 1`,
+        [id, userId]
+      );
+      const prow = p.rows[0];
+      if (!prow) return jsonError(res, 404, { error: "not_found" });
+
+      // New model: a project has a single lean todo list.
+      // Best-effort migration: if a project has legacy todos but no project_todos yet,
+      // create project_todos rows with titles derived from the legacy notes field.
+      const hasNew = await pool.query(
+        `select 1 from project_todos where project_id=$1 and owner_user_id=$2 limit 1`,
+        [id, userId]
+      );
+      if (!hasNew.rows[0]) {
+        const legacy = await pool.query(
+          `select t.due_at, t.notes, t.created_at
+             from todos t
+            where t.project_id=$1 and t.owner_user_id=$2
+            order by t.created_at asc`,
+          [id, userId]
+        );
+        if (legacy.rows.length) {
+          for (const row of legacy.rows) {
+            const title = firstNonEmptyLine(row.notes) || "Todo";
+            await pool.query(
+              `insert into project_todos (id, project_id, owner_user_id, title, due_at, done)
+               values ($1,$2,$3,$4,$5,false)`,
+              [randomId(), id, userId, title.slice(0, 200), row.due_at]
+            );
+          }
+        }
+      }
+
+      const ptTodosQ = await pool.query(
+        `select pt.id, pt.title, pt.due_at, pt.done, pt.linked_note_id, n.title as linked_note_title, pt.created_at
+           from project_todos pt
+           left join notes n on n.id = pt.linked_note_id and n.owner_user_id = pt.owner_user_id
+          where pt.project_id=$1 and pt.owner_user_id=$2
+          order by pt.created_at asc`,
+        [id, userId]
+      );
+
+      // Legacy: keep returning lists for old clients.
+      const listsQ = await pool.query(
+        `select id, title, created_at
+           from project_lists
+          where project_id=$1 and owner_user_id=$2
+          order by created_at asc`,
+        [id, userId]
+      );
+      const legacyTodosQ = await pool.query(
+        `select id, list_id, due_at, recurring, notes, created_at
+           from todos
+          where project_id=$1 and owner_user_id=$2
+          order by created_at asc`,
+        [id, userId]
+      );
+
+      const todosByList = new Map();
+      for (const t of legacyTodosQ.rows) {
+        const arr = todosByList.get(t.list_id) || [];
+        arr.push({
+          id: t.id,
+          listId: t.list_id,
+          dueAt: t.due_at ? new Date(t.due_at).toISOString() : null,
+          recurring: t.recurring || "",
+          notes: t.notes || "",
+          createdAt: new Date(t.created_at).toISOString(),
+        });
+        todosByList.set(t.list_id, arr);
+      }
+
+      const lists = listsQ.rows.map((l) => ({
+        id: l.id,
+        title: l.title,
+        createdAt: new Date(l.created_at).toISOString(),
+        todos: todosByList.get(l.id) || [],
+      }));
+
+      const project = {
+        id: prow.id,
+        title: prow.title,
+        dueAt: prow.due_at ? new Date(prow.due_at).toISOString() : null,
+        description: prow.description || "",
+        createdAt: new Date(prow.created_at).toISOString(),
+        updatedAt: new Date(prow.updated_at).toISOString(),
+      };
+      const todos = ptTodosQ.rows.map((t) => ({
+        id: t.id,
+        title: t.title || "",
+        dueAt: t.due_at ? new Date(t.due_at).toISOString() : null,
+        done: !!t.done,
+        linkedNoteId: t.linked_note_id || "",
+        linkedNoteTitle: t.linked_note_title || "",
+        createdAt: new Date(t.created_at).toISOString(),
+      }));
+
+      return jsonOk(res, { project, todos, lists });
+    }
+
+    if (action === "projects_create") {
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+      const title = String(req.body?.title || "").trim() || "Untitled project";
+      if (title.length > 200) return jsonError(res, 400, { error: "title_too_long" });
+      const description = String(req.body?.description || "");
+      if (description.length > 200000) return jsonError(res, 400, { error: "description_too_long" });
+
+      const dueParsed = parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt);
+      if (dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+
+      const id = randomId();
+      const { rows } = await pool.query(
+        `insert into projects (id, owner_user_id, title, due_at, description)
+         values ($1,$2,$3,$4,$5)
+         returning id, title, due_at, description, created_at, updated_at`,
+        [id, userId, title, dueParsed, description]
+      );
+      const r = rows[0];
+      return jsonOk(res, {
+        project: {
+          id: r.id,
+          title: r.title,
+          dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+          description: r.description || "",
+          createdAt: new Date(r.created_at).toISOString(),
+          updatedAt: new Date(r.updated_at).toISOString(),
+        },
+      });
+    }
+
+    if (action === "projects_update") {
+      const id = String(req.query.id || "");
+      if (!id) return jsonError(res, 400, { error: "missing_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const prev = await pool.query(
+        `select title from projects where id=$1 and owner_user_id=$2 limit 1`,
+        [id, userId]
+      );
+      const prevTitle = prev.rows[0]?.title || "";
+
+      const title = String(req.body?.title || "").trim() || "Untitled project";
+      if (title.length > 200) return jsonError(res, 400, { error: "title_too_long" });
+      const description = String(req.body?.description || "");
+      if (description.length > 200000) return jsonError(res, 400, { error: "description_too_long" });
+
+      const dueParsed = parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt);
+      if (dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+
+      const { rows } = await pool.query(
+        `update projects
+            set title=$1, due_at=$2, description=$3, updated_at=now()
+          where id=$4 and owner_user_id=$5
+          returning id, title, due_at, description, created_at, updated_at`,
+        [title, dueParsed, description, id, userId]
+      );
+      const r = rows[0];
+      if (!r) return jsonError(res, 404, { error: "not_found" });
+
+      if (prevTitle !== title) {
+        // Keep managed linked note titles in sync when the project title changes.
+        await pool.query(
+          `update notes n
+              set title = $1 || ' — ' || pt.title,
+                  updated_at = now(),
+                  revision = revision + 1
+             from project_todos pt
+            where pt.project_id=$2
+              and pt.owner_user_id=$3
+              and pt.note_managed_title = true
+              and pt.linked_note_id is not null
+              and n.id = pt.linked_note_id
+              and n.owner_user_id = pt.owner_user_id`,
+          [title, id, userId]
+        ).catch(() => {});
+      }
+      return jsonOk(res, {
+        project: {
+          id: r.id,
+          title: r.title,
+          dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+          description: r.description || "",
+          createdAt: new Date(r.created_at).toISOString(),
+          updatedAt: new Date(r.updated_at).toISOString(),
+        },
+      });
+    }
+
+    if (action === "project_todos_create") {
+      const projectId = String(req.query.projectId || "");
+      if (!projectId) return jsonError(res, 400, { error: "missing_project_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const title = String(req.body?.title || "").trim() || "Todo";
+      if (title.length > 200) return jsonError(res, 400, { error: "title_too_long" });
+      const dueParsed = parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt);
+      if (dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+
+      const ok = await pool.query(`select 1 from projects where id=$1 and owner_user_id=$2 limit 1`, [projectId, userId]);
+      if (!ok.rows[0]) return jsonError(res, 404, { error: "not_found" });
+
+      const id = randomId();
+      const { rows } = await pool.query(
+        `insert into project_todos (id, project_id, owner_user_id, title, due_at, done)
+         values ($1,$2,$3,$4,$5,false)
+         returning id, title, due_at, done, linked_note_id, created_at`,
+        [id, projectId, userId, title, dueParsed]
+      );
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [projectId, userId]);
+      const r = rows[0];
+      return jsonOk(res, {
+        todo: {
+          id: r.id,
+          title: r.title,
+          dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+          done: !!r.done,
+          linkedNoteId: r.linked_note_id || "",
+          createdAt: new Date(r.created_at).toISOString(),
+        },
+      });
+    }
+
+    if (action === "project_todos_update") {
+      const id = String(req.query.id || "");
+      if (!id) return jsonError(res, 400, { error: "missing_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const title = req.body?.title != null ? String(req.body.title).trim() : null;
+      if (title != null && title.length > 200) return jsonError(res, 400, { error: "title_too_long" });
+      const done = req.body?.done != null ? !!req.body.done : null;
+      const hasDue = Object.prototype.hasOwnProperty.call(req.body || {}, "dueAt");
+      const dueParsed = hasDue ? parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt) : null;
+      if (hasDue && dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+      const linkedNoteId = req.body?.linkedNoteId != null ? String(req.body.linkedNoteId || "") : null;
+
+      if (linkedNoteId) {
+        const okNote = await pool.query(`select 1 from notes where id=$1 and owner_user_id=$2 limit 1`, [linkedNoteId, userId]);
+        if (!okNote.rows[0]) return jsonError(res, 404, { error: "note_not_found" });
+      }
+
+      const current = await pool.query(
+        `select id, project_id, title, linked_note_id, note_managed_title
+                , due_at, done
+           from project_todos
+          where id=$1 and owner_user_id=$2
+          limit 1`,
+        [id, userId]
+      );
+      const cur = current.rows[0];
+      if (!cur) return jsonError(res, 404, { error: "not_found" });
+
+      const nextTitle = title != null ? (title || "Todo") : cur.title;
+      const nextDueAt = hasDue ? dueParsed : cur.due_at;
+      const nextDone = done != null ? done : !!cur.done;
+      const nextLinkedNoteId = linkedNoteId != null ? (linkedNoteId || null) : cur.linked_note_id;
+      const { rows } = await pool.query(
+        `update project_todos
+            set title=$1,
+                due_at=$2,
+                done=$3,
+                linked_note_id=$4,
+                updated_at=now()
+          where id=$5 and owner_user_id=$6
+          returning id, project_id, title, due_at, done, linked_note_id`,
+        [
+          nextTitle,
+          nextDueAt,
+          nextDone,
+          nextLinkedNoteId,
+          id,
+          userId,
+        ]
+      );
+      const r = rows[0];
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [r.project_id, userId]);
+
+      const shouldRename = !!(cur.note_managed_title && r.linked_note_id && (cur.title !== r.title));
+      if (shouldRename) {
+        const p = await pool.query(`select title from projects where id=$1 and owner_user_id=$2 limit 1`, [r.project_id, userId]);
+        const projectTitle = p.rows[0]?.title || "";
+        await pool.query(
+          `update notes set title=$1, updated_at=now(), revision=revision+1 where id=$2 and owner_user_id=$3`,
+          [`${projectTitle} — ${r.title || "Todo"}`, r.linked_note_id, userId]
+        ).catch(() => {});
+      }
+
+      return jsonOk(res, {
+        todo: {
+          id: r.id,
+          projectId: r.project_id,
+          title: r.title || "",
+          dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+          done: !!r.done,
+          linkedNoteId: r.linked_note_id || "",
+        },
+      });
+    }
+
+    if (action === "project_todos_add_note") {
+      const id = String(req.query.id || "");
+      if (!id) return jsonError(res, 400, { error: "missing_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const tq = await pool.query(
+        `select pt.id, pt.project_id, pt.title, pt.linked_note_id, p.title as project_title
+           from project_todos pt
+           join projects p on p.id = pt.project_id and p.owner_user_id = pt.owner_user_id
+          where pt.id=$1 and pt.owner_user_id=$2
+          limit 1`,
+        [id, userId]
+      );
+      const t = tq.rows[0];
+      if (!t) return jsonError(res, 404, { error: "not_found" });
+      if (t.linked_note_id) {
+        return jsonOk(res, { note: { id: t.linked_note_id } });
+      }
+
+      const noteTitle = `${t.project_title || "Project"} — ${t.title || "Todo"}`.slice(0, 200);
+      const noteId = randomId();
+      const { rows } = await pool.query(
+        `insert into notes (id, owner_user_id, title, content, revision) values ($1,$2,$3,$4,1)
+         returning id, title, revision, updated_at`,
+        [noteId, userId, noteTitle, ""]
+      );
+
+      await pool.query(
+        `update project_todos
+            set linked_note_id=$1, note_managed_title=true, updated_at=now()
+          where id=$2 and owner_user_id=$3`,
+        [noteId, id, userId]
+      );
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [t.project_id, userId]);
+      const r = rows[0];
+      return jsonOk(res, {
+        note: {
+          id: r.id,
+          title: r.title,
+          revision: Number(r.revision),
+          updatedAt: new Date(r.updated_at).toISOString(),
+        },
+      });
+    }
+
+    if (action === "lists_create") {
+      const projectId = String(req.query.projectId || "");
+      if (!projectId) return jsonError(res, 400, { error: "missing_project_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+      const title = String(req.body?.title || "").trim() || "List";
+      if (title.length > 200) return jsonError(res, 400, { error: "title_too_long" });
+
+      const ok = await pool.query(`select 1 from projects where id=$1 and owner_user_id=$2 limit 1`, [projectId, userId]);
+      if (!ok.rows[0]) return jsonError(res, 404, { error: "not_found" });
+
+      const id = randomId();
+      const { rows } = await pool.query(
+        `insert into project_lists (id, project_id, owner_user_id, title)
+         values ($1,$2,$3,$4)
+         returning id, title, created_at`,
+        [id, projectId, userId, title]
+      );
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [projectId, userId]);
+      const r = rows[0];
+      return jsonOk(res, { list: { id: r.id, title: r.title, createdAt: new Date(r.created_at).toISOString() } });
+    }
+
+    if (action === "todos_create") {
+      const listId = String(req.query.listId || "");
+      if (!listId) return jsonError(res, 400, { error: "missing_list_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const notes = String(req.body?.notes || "");
+      if (notes.length > 200000) return jsonError(res, 400, { error: "notes_too_long" });
+      const recurring = String(req.body?.recurring || "");
+      if (recurring.length > 200) return jsonError(res, 400, { error: "recurring_too_long" });
+
+      const dueParsed = parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt);
+      if (dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+
+      const lq = await pool.query(
+        `select id, project_id from project_lists where id=$1 and owner_user_id=$2 limit 1`,
+        [listId, userId]
+      );
+      const lrow = lq.rows[0];
+      if (!lrow) return jsonError(res, 404, { error: "not_found" });
+
+      const id = randomId();
+      const { rows } = await pool.query(
+        `insert into todos (id, list_id, project_id, owner_user_id, due_at, recurring, notes)
+         values ($1,$2,$3,$4,$5,$6,$7)
+         returning id, list_id, due_at, recurring, notes, created_at`,
+        [id, listId, lrow.project_id, userId, dueParsed, recurring, notes]
+      );
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [lrow.project_id, userId]);
+      await pool.query(`update project_lists set updated_at=now() where id=$1 and owner_user_id=$2`, [listId, userId]);
+      const r = rows[0];
+      return jsonOk(res, {
+        todo: {
+          id: r.id,
+          listId: r.list_id,
+          dueAt: r.due_at ? new Date(r.due_at).toISOString() : null,
+          recurring: r.recurring || "",
+          notes: r.notes || "",
+          createdAt: new Date(r.created_at).toISOString(),
+        },
+      });
+    }
+
+    if (action === "todos_update") {
+      const id = String(req.query.id || "");
+      if (!id) return jsonError(res, 400, { error: "missing_id" });
+      if (req.method !== "POST") return jsonError(res, 405, { error: "method_not_allowed" });
+
+      const notes = String(req.body?.notes || "");
+      if (notes.length > 200000) return jsonError(res, 400, { error: "notes_too_long" });
+      const recurring = String(req.body?.recurring || "");
+      if (recurring.length > 200) return jsonError(res, 400, { error: "recurring_too_long" });
+
+      const dueParsed = parseOptionalDateOnlyToUtcMidnight(req.body?.dueAt);
+      if (dueParsed === undefined) return jsonError(res, 400, { error: "bad_due_date" });
+
+      const { rows } = await pool.query(
+        `update todos
+            set due_at=$1, recurring=$2, notes=$3, updated_at=now()
+          where id=$4 and owner_user_id=$5
+          returning id, list_id, project_id`,
+        [dueParsed, recurring, notes, id, userId]
+      );
+      const r = rows[0];
+      if (!r) return jsonError(res, 404, { error: "not_found" });
+      await pool.query(`update projects set updated_at=now() where id=$1 and owner_user_id=$2`, [r.project_id, userId]);
+      await pool.query(`update project_lists set updated_at=now() where id=$1 and owner_user_id=$2`, [r.list_id, userId]);
+      return jsonOk(res, {});
+    }
+
     return jsonError(res, 404, { error: "not_found" });
   } catch (e) {
     console.error("api error", { action }, e);
@@ -702,3 +1228,20 @@ app.get("*", (_req, res) => {
 app.listen(PORT, () => {
   console.log(`[fufnotes] listening on :${PORT}`);
 });
+
+// Best-effort schema init on boot so deploys bring new tables live quickly.
+// Keep non-fatal: the app already runs ensureSchema per-request.
+void (async () => {
+  if (!DATABASE_URL) return;
+  for (let i = 0; i < 15; i++) {
+    try {
+      await ensureSchema();
+      console.log("[fufnotes] schema ok");
+      return;
+    } catch (e) {
+      if (i === 0) console.warn("[fufnotes] schema init failed; will retry", e?.message || e);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  console.warn("[fufnotes] schema init still failing after retries; API will keep retrying per-request");
+})();

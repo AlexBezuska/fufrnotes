@@ -19,6 +19,7 @@ Auth is handled via Passhroom magic-link sign-in:
 - [docs/projects-and-lists-user-stories.md](docs/projects-and-lists-user-stories.md)
 - [docs/navigation-user-stories.md](docs/navigation-user-stories.md)
 - [docs/pashroom-app-integration-guide.md](docs/pashroom-app-integration-guide.md)
+- [docs/brand-guide.md](docs/brand-guide.md)
 - [docs/servertron/README.md](docs/servertron/README.md)
 - [docs/servertron-new-app-database.md](docs/servertron-new-app-database.md)
 

@@ -5,23 +5,42 @@
 
 @layer base {
   :root {
-    /* Colors */
-    --bg: theme('colors.slate.50');
-    --surface: theme('colors.white');
-    --surface-2: theme('colors.slate.100');
-    --border: theme('colors.slate.200');
-    --border-strong: theme('colors.slate.300');
-    --text: theme('colors.slate.900');
-    --text-muted: theme('colors.slate.600');
+    /* Brand palette (Fairyloss)
+      Inspired by the header illustration (lavender sky, pink clouds, gold moon/stars, mint sparkles).
+    */
+    --whimsy-twilight-lavender: #bca9d6;
+    --whimsy-dream-lilac: #d8c9ee;
+    --whimsy-cloud-pink: #f2b6d4;
+    --whimsy-cloud-blush: #fad2e6;
+    --whimsy-moon-gold: #e8c51a;
+    --whimsy-starlight-butter: #fff2a8;
+    --whimsy-sparkle-mint: #bff2e7;
+    --whimsy-snowglow: #ffffff;
+    --whimsy-ink-plum: #2f1937;
+    --whimsy-ink-plum-muted: #553660;
 
-    /* Accent (Framework-ish orange) */
-    --accent: theme('colors.orange.500');
-    --accent-soft: theme('colors.orange.200');
+    /* App tokens (mapped to brand palette) */
+    --bg: var(--whimsy-twilight-lavender);
+    --surface: color-mix(in srgb, var(--whimsy-snowglow) 92%, var(--whimsy-cloud-blush) 8%);
+    --surface-2: color-mix(in srgb, var(--whimsy-snowglow) 82%, var(--whimsy-dream-lilac) 18%);
+    --border: color-mix(in srgb, var(--whimsy-ink-plum) 14%, var(--whimsy-dream-lilac) 86%);
+    --border-strong: color-mix(in srgb, var(--whimsy-ink-plum) 22%, var(--whimsy-dream-lilac) 78%);
+    --text: var(--whimsy-ink-plum);
+    --text-muted: var(--whimsy-ink-plum-muted);
 
-    /* Bubblegum accents (used sparingly) */
-    --bubblegum-pink: theme('colors.pink.300');
-    --bubblegum-lavender: theme('colors.violet.200');
-    --bubblegum-mint: theme('colors.emerald.200');
+    --accent: var(--whimsy-moon-gold);
+    --accent-soft: var(--whimsy-starlight-butter);
+
+    /* Friendly accents for UI */
+    --bubblegum-pink: var(--whimsy-cloud-pink);
+    --bubblegum-lavender: var(--whimsy-dream-lilac);
+    --bubblegum-mint: var(--whimsy-sparkle-mint);
+
+    /* Tabs */
+    --tab-shadow: 0 1px 0 rgba(47, 25, 55, 0.10), 0 8px 24px rgba(47, 25, 55, 0.10);
+    --tab-notes-active: var(--whimsy-starlight-butter);
+    --tab-projects-active: var(--whimsy-cloud-blush);
+    --tab-active-border: color-mix(in srgb, var(--whimsy-ink-plum) 18%, var(--whimsy-dream-lilac) 82%);
 
     /* Typography */
     --font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
@@ -180,5 +199,50 @@
     height: 3px;
     background: var(--accent);
     width: 100%;
+  }
+
+  .ui-checkbox {
+    width: 22px;
+    height: 22px;
+    accent-color: var(--accent);
+  }
+
+  .ui-tabs {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-card);
+    background: var(--surface-2);
+    box-shadow: var(--tab-shadow);
+  }
+
+  .ui-tab {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius-card) - 4px);
+    padding: 8px 14px;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .ui-tab:hover {
+    filter: brightness(0.99);
+  }
+
+  .ui-tab.is-active {
+    color: var(--text);
+    border-color: var(--tab-active-border);
+    box-shadow: 0 1px 0 rgba(47, 25, 55, 0.10);
+  }
+
+  #navNotesBtn.ui-tab.is-active {
+    background: var(--tab-notes-active);
+  }
+
+  #navProjectsBtn.ui-tab.is-active {
+    background: var(--tab-projects-active);
   }
 }
