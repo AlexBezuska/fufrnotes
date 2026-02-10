@@ -19,6 +19,10 @@ Suggested env vars in your app:
 - `PASSHROOM_CLIENT_SECRET=...` (server-only)
 - `PASSHROOM_CALLBACK_URL=https://yourapp.com/auth/passhroom/callback`
 
+Notes (important for production):
+- `PASSHROOM_CALLBACK_URL` must be an **exact string match** to what’s allowlisted in Passhroom Apps. Don’t “helpfully” normalize it (like adding or removing a trailing slash).
+- `PASSHROOM_BASE_URL` must be resolvable/reachable from your app server/container. If DNS for the base host fails, you’ll see `passhroom_unreachable`.
+
 ## 1) Start sign-in (user enters email)
 
 When the user types their email in your app, your **server** calls Passhroom:
@@ -39,6 +43,11 @@ Notes:
 - Passhroom emails the user both:
   - A magic link
   - A sign-in code (a random mushroom common name)
+
+Redirect URI gotcha:
+- Passhroom validates `redirect_uri` by **exact match** against the app’s allowlist.
+- `https://example.com` and `https://example.com/` can be treated as **different values**.
+- If Passhroom is configured with `https://kittylytics.com` but your server sends `https://kittylytics.com/`, Passhroom will reject with `{"error":"invalid_redirect_uri"}` and your UI will typically show “Couldn’t send the sign-in email.”
 
 The user can either:
 - Click the magic link, or
@@ -115,6 +124,17 @@ That’s what guarantees “each user has their own separate private data”.
 
 ## 5) Common gotchas
 
-- `redirect_uri` must **exactly match** an allowlisted Callback URL in Passhroom Apps.
+- `redirect_uri` must **exactly match** an allowlisted Callback URL in Passhroom Apps (including trailing slash).
+- Avoid automatic URL normalization:
+  - Don’t “force” a trailing slash.
+  - Don’t rewrite `https://yourapp.com` into `https://yourapp.com/`.
+  - Don’t change paths (root vs `/auth/passhroom/callback`).
+- If you’re seeing `invalid_redirect_uri`:
+  - Verify the allowlisted value in Passhroom matches **exactly** what your server is sending.
+  - Prefer configuring one canonical value (example: allowlist `https://kittylytics.com` and set `PASSHROOM_CALLBACK_URL=https://kittylytics.com`).
 - Keep `client_secret` **server-side only** (never ship it to browsers).
 - If you change your app domain/path, update the allowlist in Passhroom.
+
+Connectivity gotcha:
+- If your server logs show DNS errors like `getaddrinfo ENOTFOUND …`, your `PASSHROOM_BASE_URL` host isn’t resolvable from the container.
+  - Fix by pointing `PASSHROOM_BASE_URL` at the correct reachable Passhroom host for that environment.
